@@ -223,7 +223,7 @@ static inline void zstr_shrink_to_fit(zstr *s)
         Z_STR_FREE(s->l.ptr);
 
         s->is_long = 0;
-        memcpy(s->s.buf, temp, s->s.len + 1);
+        memcpy(s->s.buf, temp, old_len + 1);
         s->s.len = old_len;
         return;
     }
