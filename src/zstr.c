@@ -973,6 +973,7 @@ static inline bool zstr_split_next(zstr_split_iter *it, zstr_view *out_part)
 #include <iostream>
 #include <cstring>
 #include <string>
+#include <iterator>
 
 #if __cplusplus >= 201703L
 #include <string_view>
@@ -997,6 +998,8 @@ namespace z_str
         view() : inner{NULL, 0} {}
         view(const char *s) : inner(::zstr_view_from(s)) {}
         view(const char *s, size_t len) : inner{s, len}  {}
+        
+        // Defined later to allow cyclic dependency.
         view(const string &s);
         view(const string &&) = delete;
 
@@ -1014,11 +1017,88 @@ namespace z_str
         operator std::string_view() const { return std::string_view(data(), size()); }
 #       endif
 
+        bool starts_with(const char *prefix) const { return ::zstr_view_starts_with(inner, prefix); }
+        bool ends_with(const char *suffix) const   { return ::zstr_view_ends_with(inner, suffix); }
+        bool equals(const char *str) const         { return ::zstr_view_eq(inner, str); }
+
+        view sub(size_t start, size_t len) const
+        {
+            ::zstr_view v = ::zstr_sub(inner, start, len);
+            return view(v.data, v.len);
+        }
+
+        view lstrip() const
+        {
+            ::zstr_view v = ::zstr_view_lstrip(inner);
+            return view(v.data, v.len);
+        }
+
+        view rstrip() const
+        {
+            ::zstr_view v = ::zstr_view_rstrip(inner);
+            return view(v.data, v.len);
+        }
+
+        view trim() const
+        {
+            ::zstr_view v = ::zstr_view_trim(inner);
+            return view(v.data, v.len);
+        }
+
+        // Returns true if parsing was successful.
+        bool to_int(int *out) const { return ::zstr_view_to_int(inner, out); }
+
         // Comparisons.
         bool operator==(const char* other) const { return ::zstr_view_eq(inner, other); }
         bool operator==(const view& other) const { return ::zstr_view_eq_view(inner, other.inner); }
         bool operator!=(const char* other) const { return !(*this == other); }
         bool operator!=(const view& other) const { return !(*this == other); }
+    };
+
+    class split_iterable
+    {
+        ::zstr_view source;
+        const char *delim;
+     public:
+        split_iterable(::zstr_view s, const char *d) : source(s), delim(d) {}
+
+        struct iterator 
+        {
+            using iterator_category = std::input_iterator_tag;
+            using value_type        = view;
+            using difference_type   = std::ptrdiff_t;
+            using pointer           = const view*;
+            using reference         = const view&;
+
+            ::zstr_split_iter state;
+            ::zstr_view current_part;
+            bool done;
+
+            iterator(::zstr_view s, const char *d, bool end) : done(end)
+            {
+                if (!end)
+                {
+                    state = ::zstr_split_init(s, d);
+                    next();
+                }
+            }
+
+            void next() 
+            {
+                if (!::zstr_split_next(&state, &current_part))
+                {
+                    done = true;
+                }
+            }
+
+            view operator*() const { return view(current_part.data, current_part.len); }
+            iterator& operator++() { next(); return *this; }
+            bool operator!=(const iterator& other) const { return done != other.done; }
+            bool operator==(const iterator& other) const { return done == other.done; }
+        };
+
+        iterator begin() { return iterator(source, delim, false); }
+        iterator end()   { return iterator(source, delim, true); }
     };
 
     class string
@@ -1116,6 +1196,15 @@ namespace z_str
         const char *begin() const { return ::zstr_cstr(&inner); }
         const char *end() const   { return ::zstr_cstr(&inner) + size(); }
 
+        char& operator[](size_t idx)             { return ::zstr_data(&inner)[idx]; }
+        const char& operator[](size_t idx) const { return ::zstr_cstr(&inner)[idx]; }
+
+        char& front()             { return operator[](0); }
+        const char& front() const { return operator[](0); }
+        
+        char& back()              { return operator[](size() - 1); }
+        const char& back() const  { return operator[](size() - 1); }
+
         // Modifiers.
         void clear()             { ::zstr_clear(&inner); }
         void reserve(size_t cap) { ::zstr_reserve(&inner, cap); }
@@ -1132,15 +1221,55 @@ namespace z_str
         string& operator+=(char c)              { push_back(c); return *this; }
         string& operator+=(const string &other) { return append(other.c_str(), other.size()); }
 
-        char& operator[](size_t idx)             { return ::zstr_data(&inner)[idx]; }
-        const char& operator[](size_t idx) const { return ::zstr_cstr(&inner)[idx]; }
+        // Search
+        std::ptrdiff_t find(const char *needle) const { return ::zstr_find(&inner, needle); }
+        bool contains(const char *needle) const       { return ::zstr_contains(&inner, needle); }
+        bool starts_with(const char *prefix) const    { return ::zstr_starts_with(&inner, prefix); }
+        bool ends_with(const char *suffix) const      { return ::zstr_ends_with(&inner, suffix); }
 
         // Some utilities.
         void to_lower() { ::zstr_to_lower(&inner); }
         void to_upper() { ::zstr_to_upper(&inner); }
         void trim()     { ::zstr_trim(&inner); }
 
-        // Formating.
+        void replace(const char *target, const char *replacement) 
+        {
+            ::zstr_replace(&inner, target, replacement);
+        }
+
+        // Ownership.
+        // WARNING: Returns a raw malloc'd pointer. You MUST free() this yourself.
+        // The string object becomes empty after this call.
+        char* release() { return ::zstr_take(&inner); }
+
+        static string own(char *ptr, size_t len, size_t cap) 
+        {
+            string s;
+            s.inner = ::zstr_own(ptr, len, cap);
+            return s;
+        }
+
+        // UTF-8.
+        size_t rune_count() const    { return ::zstr_count_runes(&inner); }
+        bool is_valid_utf8() const   { return ::zstr_is_valid_utf8(&inner); }
+
+        // Splitting.
+        // Usage: for(auto part : str.split(",")) { ... }
+        split_iterable split(const char *delim) const &
+        {
+            return split_iterable(::zstr_as_view(&inner), delim);
+        }
+
+        split_iterable split(const char *delim) const && = delete;
+
+        // Static Factories.
+        static string from_file(const char *path) 
+        {
+            string s;
+            s.inner = ::zstr_read_file(path);
+            return s;
+        }
+
         // WARNING: Only POD types (int, double, char*) are safe here.
         // Passing std::string or objects will crash.
         template <typename... Args>
