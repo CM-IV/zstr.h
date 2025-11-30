@@ -118,7 +118,7 @@
 #define ZSTR_ARG(s) (int)zstr_len(&(s)), zstr_cstr(&(s))
 #endif
 
-// Alias macro for pushing a single char
+// Alias macro for pushing a single char.
 #define zstr_push(s, c) zstr_push_char(s, c)
 
 /* Data Structures */
