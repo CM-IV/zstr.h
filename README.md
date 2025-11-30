@@ -1,27 +1,26 @@
 # zstr.h
 
-`zstr.h` provides a modern, high-level string library for C projects. Designed to mimic the architecture of C++ `std::string` (specifically Small String Optimization and Views), it offers a safe, convenient API while remaining pure C.
+`zstr.h` is a modern, single-header string library for C projects. Designed to mimic the architecture of C++ `std::string` (specifically Small String Optimization and Views), it offers a safe, convenient API while remaining pure C.
+
+It also includes a robust **C++17 wrapper**, allowing you to use it as a lightweight, drop-in string class in mixed codebases.
 
 ## Features
 
 * **Small String Optimization (SSO)**: Strings shorter than 23 bytes are stored directly on the stack (inside the struct), avoiding heap allocation entirely.
 * **View Semantics**: Distinct `zstr` (owning) and `zstr_view` (non-owning) types allow for zero-copy slicing and parsing.
 * **Safe & Auto-Growing**: Buffer overflows are handled by automatic reallocation.
+* **C++ Support**: Includes a full C++ class wrapper (`z_str::string`) with RAII, move semantics, and `std::string_view` compatibility.
 * **UTF-8 Aware**: Includes helpers for UTF-8 validation and rune counting.
-* **Header Only**: No build scripts or linking required.
 * **Zero Dependencies**: Only standard C headers used.
 
-## Installation & Setup
+## Installation
 
-Unlike generic containers that require macro instantiation, `zstr` is a concrete type, so setup is straightforward.
+`zstr` is a concrete type, so setup is straightforward.
 
-### 1. Add the library
+1.  Copy `zstr.h` (and `zcommon.h` if separated) into your project's include directory.
+2.  Include it in your code.
 
-Copy `zstr.h` into your project's include directory.
-
-### 2. Use in your code
-
-Just include the header.
+## Usage: C
 
 ```c
 #include <stdio.h>
@@ -47,7 +46,35 @@ int main(void)
 }
 ```
 
-## API Reference
+## Usage: C++
+
+The library detects C++ compilers automatically. To avoid naming collisions with the C struct `zstr`, the C++ classes live in the **`z_str`** namespace.
+
+```cpp
+#include <iostream>
+#include "zstr.h"
+
+int main()
+{
+    // RAII handles memory automatically (Constructor/Destructor).
+    z_str::string s = "Hello";
+
+    // Operator overloads.
+    s += " World!";
+
+    // Modern C++17 string_view support.
+    z_str::view v = s; 
+
+    // Static formatting helper (Safety Warning: Only pass POD types!).
+    z_str::string log = z_str::string::fmt("ID: %d", 42);
+
+    std::cout << s << std::endl; // "Hello World!"
+    
+    return 0;
+}
+```
+
+## API Reference (C)
 
 ### Initialization & Creation
 
@@ -142,7 +169,7 @@ int main(void)
 | `zstr_split_init(src, delim)` | Initializes a split iterator (`zstr_split_iter`). |
 | `zstr_split_next(it, out)` | Advances iterator and populates `out` (view) with the next part. |
 
-## Extensions (Experimental)
+### Extensions (Experimental)
 
 If you are using a compiler that supports `__attribute__((cleanup))` (like GCC or Clang), you can use the **Auto-Cleanup** extension.
 
@@ -160,6 +187,37 @@ void log_status()
     // msg is freed automatically here.
 }
 ```
+
+## API Reference (C++)
+
+The C++ wrapper is lightweight and holds a `zstr` C struct internally. It is defined in the `z_str` namespace.
+
+### `class z_str::string`
+
+| Method | Description |
+| :--- | :--- |
+| `string()` | Default constructor (empty). |
+| `string(const char*)` | Construct from C-string. |
+| `string(std::string_view)` | Construct from C++17 string view. |
+| `c_str()`, `data()` | Returns `const char*`. |
+| `size()`, `length()` | Returns length. |
+| `append(str)` / `+=` | Append text. |
+| `fmt(fmt, ...)` | **Static** method. Creates a string via printf formatting. **Warning:** Pass only POD types (`int`, `float`, `char*`), not C++ objects. |
+| `begin()`, `end()` | Standard iterators (pointers). |
+
+### `class z_str::view`
+
+A lightweight wrapper around `zstr_view` that is compatible with `std::string_view`.
+
+| Method | Description |
+| :--- | :--- |
+| `view(string&)` | Implicit conversion from `z_str::string`. |
+| `operator[]` | Access character at index. |
+| `lstrip()`, `rstrip()` | (Via C API helpers) Trims whitespace. |
+
+> Note: The C++ API is still growing.
+
+---
 
 ## Memory Management
 
@@ -193,6 +251,8 @@ If you need a specific allocator just for strings, use the library-specific macr
 
 #include "zstr.h"
 ```
+
+> **Note for C++:** If you override these macros manually, ensure your `MALLOC` and `REALLOC` macros cast their result to `(char*)` to satisfy C++ strict typing, though `zstr.h` handles this internally for standard headers (just a gentle reminder).
 
 ## Notes
 
