@@ -40,4 +40,4 @@ jobs:
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "Auto-update: Bump z-core [skip ci]"
-          file_pattern: 'include/zstr.h zstr.h'
+          file_pattern: 'zstr.h'
