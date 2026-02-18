@@ -1081,13 +1081,15 @@ static inline bool zstr_split_next(zstr_split_iter *it, zstr_view *out_part)
     size_t remaining = it->source.len - it->current_pos;
     
     size_t found_at = remaining;
-    
-    for (size_t i = 0; i <= remaining - it->delim.len; i++) 
-    {
-        if (memcmp(start + i, it->delim.data, it->delim.len) == 0) 
+
+    if (remaining >= it->delim.len) {
+        for (size_t i = 0; i <= remaining - it->delim.len; i++) 
         {
-            found_at = i;
-            break;
+            if (memcmp(start + i, it->delim.data, it->delim.len) == 0) 
+            {
+                found_at = i;
+                break;
+            }
         }
     }
 
